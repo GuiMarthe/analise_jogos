@@ -3,12 +3,16 @@ Análise de vendas de Video Games
 
 Análise de vendas de jogos de video games com no mínimo 100 mil cópias vendidads. 
 
-### Algumas pergutnas preliminares
+### Algumas perguntas preliminares
+- a decisão de se concentrar a publicação em menos gêneros afeta o resultado global de unidades vendidas de uma produtora?
+- como se comporta o tempo de decadência de uma plataforma?
+- dentre as franquias identificadas, quais são aquelas que são mais bem sucedidas?
+- dentre as franquias identificadas, quais são aquelas que estão em crescimento ao longo do tempo? E quais estão em decrescimento?
 
-- Quais são as franquias mais bem sucedidas?(Em termos de venda média por jogo da franquia e total de jogos já vendidos?)
-- Para cada franquia, quais são os mercados mais importantes? NA, EU ou JP?
-- Para cada franquia, quais são as plataformas mais importantes?
-- para cada produtor(publisher) quais são as melhores franquias? E quais são as que mais cresceram? e decresceram?
+Os scripts em Python, localizados em src/data são responsáveis por limpar os dados provindos das tabelas da wikipedia.
+
+Basta roda-los a partir do topo do projeto.
+
 
 Project Organization
 ------------
