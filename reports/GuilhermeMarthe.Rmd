@@ -1,0 +1,694 @@
+---
+title: "Respondendo algumas perguntas sobre sobre o mercado de jogos eletrônicos"
+author: "Guilherme Marthe"
+date: "Março de 2018"
+output:
+  pdf_document: default
+  html_notebook:
+    code_folding: hide
+  html_document:
+    df_print: paged
+---
+
+```{r setup, warning = FALSE, message = FALSE, echo = FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+options(tidyverse.quiet = TRUE, scipen = 999)
+library(lubridate)
+library(tidyverse)
+library(here)
+library(magrittr)
+library(modelr)
+library(broom)
+```
+
+# Sumário Executivo
+
+Ao longo desse documento são exploradas algumas perguntas quantitativas sobre o mercado de jogos eltrônicos em diversas plataformas de 1980 a 2016. A perguntas propostas, bem como suas respostas tetnativas foram:
+
+- a decisão de se concentrar a publicação em menos gêneros afeta o resultado global de unidades vendidas de uma produtora?
+
+  Sim. Quanto mais concentrada em menos gêneros for a produção o número de unidades tende a cair. Propomos um índice que representa o nível de concetração de da produção. Em média pode se dizer que o aumento de um ponto percentual desse índice acarreta na redução das vendas no ano em 40-60 mill unidades. As estimativas apresentadas variam de acordo com o número de jogos publicados em um ano, sendo que quanto mais jogos publicados, mais sensível são as vendas à concentração desses jogos em menos gêneros.
+
+- como se comporta o tempo de decadência de uma plataforma?
+
+   Estimamos que após atingir seu pico, uma plataforma tende a deixar de ter novos jogos publicados em 5 anos e meio, sendo que portáteis são estimados em ter esse ciclo 10 meses mais curto. Apesar de ter uma peguna amostra de plataformas, podemos afirmar que um número baixo de jogos publicados para uma determinada plataforma indica que seu tempo de decadência é menor.
+
+
+- Dentre as franquias identificadas, quais são aquelas que estão em crescimento ao longo do tempo? E quais estão em decrescimento?
+
+  Conseguimos identificar, dentre 132 franquias, 16 franquias que esperamos ser prósperas ao longo dos próximos anos e 16 que esperamos ter uma tendência de decrescimento no seu total de vendas globais.
+
+
+# Objetivos da análise
+
+Com base em dados extraídos do site [vgchartz.com](vgchartz.com) disponibilizados pela plataforma Kaggle, pretendo realizar uma análise envolvendo franquias de jogos eletrônicos. Uma franquia é um conjunto de peças de mídia (no caso jogos eletrônicos) derivados de um trabalho original. As perguntas que propomos responder são as seguintes:
+
+- a decisão de se concentrar a publicação em menos gêneros afeta o resultado global de unidades vendidas de uma produtora?
+- como se comporta o tempo de decadência de uma plataforma?
+- Dentre as franquias identificadas, quais são aquelas que são mais bem sucedidas?
+- Dentre as franquias identificadas, quais são aquelas que estão em crescimento ao longo do tempo? E quais estão em decrescimento?
+
+## Descrição dos dados
+```{r message=FALSE, warning=FALSE}
+df <- read_csv(here('data', 'raw', 'vgsales.csv')) %>% janitor::clean_names() %>% 
+  mutate_at(vars(name), funs(str_to_lower)) %>% 
+  mutate(year = as.numeric(year)) %>% 
+  filter(year < 2017)
+```
+
+Os dados originais consistem em `r nrow(df)` jogos eletrônicos vendidos entre 1980 e 2016.
+
+```{r}
+ggplot2::theme_set(theme_minimal(base_family = 'URWHelvetica'))
+df %>% 
+  group_by(publisher, year) %>%
+  summarise() %>% 
+  filter(year > 2003) %>% 
+  select(publisher) %>% 
+  filter(publisher != 'Unknown') %>% 
+  unique() -> publishers_after_2003
+
+df %>% semi_join(publishers_after_2003) %>%  count(publisher) -> publishers
+df
+```
+
+# Produtoras de jogos eletrônicos
+
+Arbitrariamente, queremos trabalhar apenas com produtoras que publicaram jogos após 2003. Esse inicia o padrão moderno para a produção de jogos eltrônicos moderna conforme será obervado nas próximas sessões.
+No total estamos lidando com `r nrow(publishers)` produtoras de jogos. Porém, *50%* dos jogos publicados estão concentrados nas 10 maiores produtoras e *80%* entre os 36 maiores produtoras em termos de jogos publicados. 
+
+
+```{r}
+publishers %>% 
+  arrange(-n) %>% 
+  mutate(publisher = as.factor(publisher)) %>% 
+  mutate(prop = round(x = cumsum(n)/sum(n), digits = 2) ) %>% 
+  rename(`Total de jogos publicados` = n, `Proporção acumulada de jogos lançados` =  prop)
+  
+```
+
+Os jogos foram publicados ao longo de 12 gêneros de jogos distintos, sendo os gêneros de ação e esporte os mais expressivos. 
+
+```{r fig.height=5, fig.width=9, message=FALSE, warning=FALSE}
+top_35_publishers <- 
+publishers %>% 
+  arrange(-n) %>% 
+  mutate(publisher = as.factor(publisher)) %>% 
+  mutate(prop = round(x = cumsum(n)/sum(n), digits = 2) ) %>% 
+  filter(prop < 0.82)
+
+df %>% 
+  semi_join(top_35_publishers) %>% 
+  count(genre) %>% 
+  mutate(prop = n/sum(n),
+         n = round(n/100, digits = 1),
+         genre = as.factor(genre) %>% fct_reorder(-n),
+         text = glue::glue('{total} ({prop}%)', total = n, prop = round(prop*100, digits = 0))
+         )  %>% 
+  ggplot(aes(genre, n, group = 1)) + 
+  geom_bar(stat = 'identity') + 
+  geom_text(aes(y = n - 2, label = text), size = 3, color = '#FFFFFF')+
+  labs(x = NULL, 
+       y = 'número de jogos publicados (em milhares)',
+       title = 'Número de jogos publicados pelas 36 maiores produtoras'
+       )
+```
+
+Devido ao próprio nível de concentração do mercado de jogos, é esperado que o rítmo de desenvolvimento seja bem variável entre as produtoras. Como podemos ver a seguir, entre as 35 maiores produtoras, o número médio de jogos publicados varia bastante, não só em termos médios como também nos anos "laterais" (de máximo ou de mínimo).
+
+```{r fig.height=6, fig.width=9, message=FALSE, warning=FALSE}
+
+df %>% 
+  semi_join(top_35_publishers) %>% 
+  filter(year > 2003) %>% 
+  count(publisher, year) %>% 
+  group_by(publisher) %>% 
+  summarise_at(vars(n), funs(avg = mean, high = max, low = min)) %>% 
+  mutate(publisher = fct_reorder(publisher, -avg)) %>% 
+  ggplot(aes(publisher, avg)) +
+  geom_point()  +
+  geom_point(aes(y = high), pch = 2) +
+  geom_point(aes(y = low), pch = 6) +
+  coord_flip() +
+  labs(title = 'Jogos publicados por ano das top 36 produtoras',
+      x = NULL,
+      y = 'número mínimo, médio e máximo de jogos publicados',
+      subtitle = 'triangulos representam os números mínimos e máximos de jogos produzidos em um ano.',
+      caption = 'Apenas anos após 2003'
+      ) 
+```
+
+
+
+# Gênero 
+
+Será que existe um padrão na publicação de jogos de um determinado gênero ao longo do tempo? O gráfico a seguir sugere que cada gênero possui um perfil de publicação ao dos anos. Todavia, alguns gêneros parecem ter tido o seu maior número de jogos publicados em um ano ao redor de 2009. Algumas razões para isso podem ser a crise internacional de 2008 que teve impactos negativos na demanda por mídia e etreterimento ou uma persistência na popularidade de jogos do estilo de ação e em menor grau de FPS. 
+
+```{r fig.height=4.5, fig.width=10, message=FALSE, warning=FALSE}
+
+df %>%
+  count(year, genre) %>% 
+  mutate(year = glue::glue('{year}0101', year = year)) %>% 
+  mutate(year = lubridate::ymd(year)) -> ts_gen
+
+ts_gen %>% 
+  filter(year > lubridate::ymd(19900101)) %>% 
+  ggplot(aes(year, n)) +
+  geom_point(aes(color = genre), size = 1, show.legend = F) + 
+  geom_line(aes(group = genre, color = genre), show.legend = F, size = 0.7) +
+  scale_x_date(date_breaks = '5 years', date_labels = '%Y') +
+  scale_y_continuous(breaks = c(seq(0, 350, 50))) +
+  facet_wrap(~genre) + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0, hjust = 0)) + 
+  labs(title = 'Número de títulos publicados por ano e gênero de jogo', 
+       x = NULL, 
+       y = NULL,
+       caption = 'Foram usados apenas os anos após 1990'
+       )
+```
+
+## A decisão de se concentrar a publicação em menos gêneros afeta o resultado global de unidades vendidas?
+
+Para cada ano em que uma produtora lança jogos, propomos um índice de concentração da produção de jogos em categorias baseado no índice [HHI](https://en.wikipedia.org/wiki/Herfindahl_index) de concentração de mercados. Basicamente, quanto mais alto é o índice (mais próximo de 1), mais concentrada em em poucos gêneros foi a produção de jogos ao longo daquele ano.
+
+Abaixo podemos ver como esse indice de concentração de gênero de jogos evoluiu ao longo do tempo para as 15 maiores produtoras.
+Para se entender melhor índice, note a evolução da Konami. Historicamente, a ela é conhecida por produzir jogos que estão distribuidos ao longo de diversos gêneros. Alguns exemplos de franquias que têm muitos gêneros são:
+
+- Yu-gi-oh: estratégia, puzzle, aventura, RPG
+- dance dance revolution: simulação
+- PES: esportes
+- MGSV: ação, aventura, estratégia
+- vários outros títulos
+
+Todavia em 2015/16 a Konami só lanção dois títulos (em diferentes plataformas), MGSIV e PES 2015 (ação e esporte), o que levou a empresa a ter esse nível de concentração bem alto para esses anos.
+
+```{r fig.height=4, fig.width=10, message=FALSE}
+
+df %>% 
+  filter(year > 1990) %>% 
+  semi_join(top_35_publishers %>% 
+              top_n(n, n = 15)) %>% 
+  mutate(year = glue::glue('{year}0101', year = year)) %>% 
+  mutate(year = lubridate::ymd(year)) %>% 
+  count(year, publisher, genre) %>% 
+  group_by(year, publisher) %>% 
+  mutate(prop = n/sum(n)) %>% 
+  summarise(conc_index = sum(prop^2)) %>% 
+  mutate(konami = !str_detect(publisher, 'Konami')) %>% 
+  ggplot(aes(year, conc_index)) + 
+  geom_line(aes(color = konami), show.legend = F) +
+  facet_wrap(~publisher, ncol = 5) + 
+  scale_x_date(date_labels = '%Y') +
+  labs(x = NULL,
+       y = 'indice de concentração',
+       title = 'Nível de concentração em gêneros de produtoras ao longo do tempo'
+       )
+
+
+```
+
+```{r fig.height=5, fig.width=9, message=FALSE, warning=FALSE}
+
+cdf <-
+df %>% 
+  mutate(year = glue::glue('{year}0101', year = year)) %>% 
+  mutate(year = lubridate::ymd(year)) %>% 
+  group_by(year, publisher, genre) %>% 
+  summarise(n = n(),
+            genre_sales = sum(global_sales)
+            ) %>% 
+  group_by(year, publisher) %>% 
+  mutate(prop = n/sum(n))  %>% 
+  summarise(conc_index = sum(prop^2), 
+            total_sales = sum(genre_sales), 
+            n_games = sum(n)) %>% 
+  mutate(yy = lubridate::year(year) - 1980 + 1)
+
+
+#cdf %>% 
+#  filter(year >= ymd(20140101)) %>% 
+#  filter(str_detect(publisher, 'Konami'))
+
+cdf %>%
+ggplot(aes(conc_index, total_sales)) + 
+  geom_point() + geom_smooth(method = 'lm', formula = y ~ poly(x, 2)) + 
+  scale_y_continuous(trans = scales::log10_trans(), breaks = scales::log_breaks(n = 10)) +
+  #scale_y_continuous(trans = scales::reciprocal_trans()) +
+  labs(y = 'total de unidades vendidas (milhões) em escala log', 
+       x = 'índice de concentração de gênero\n(+ concentrada foi a produção ->)', 
+       title = 'Relação entre vendas globais anuais e concentração de títulos publicados',
+       subtitle = 'Cada ponto representa o total de vendas em um ano de uma produtora\njunto com a concentração daquele ano.'
+       )
+
+```
+
+O efeito anterior pode ser estimado que *para cada ponto percentual a mais do índice de concentração da produção*, as vendas naquele determinado ano são *reduzidas em 40 mil unidades* em média. Esse número, todavia, pode estar sendo mitigado pelo número de jogos publicados ao longo do ano. E de fato o gráfico a seguir mostra que a tendência é essa. A única produtora que parece fugir dessa tendência é a Nintendo.
+
+```{r}
+ll <- tibble(nintendo = T)
+
+cdf %>% 
+  mutate(nintendo = publisher != 'Nintendo') %>% 
+  ggplot(aes(n_games, total_sales)) +
+  geom_point(aes(fill = nintendo), pch = 21, size = 2, show.legend = F) +
+ geom_label(data = ll, aes(label = 'Nintendo', x = 20, y = 126, fill = !nintendo), show.legend = F) +
+  labs(title = 'Jogos publicados e vendas totais no ano',
+       x = 'unidades de jogos publicadas',
+       y = 'total de unidades vendidas (em milhões)'
+       )
+```
+
+
+Munidos com essas informações propus uma série de modelos utilizando as variáveis discutidas. Abaixo está compreendido o resultado desse modelo, indicando a importância da concentração em muitos gêneros aumenta quando se publica mais jogos. 
+
+
+```{r fig.height=5, fig.width=10, message=FALSE, warning=FALSE}
+
+cdf %>% 
+  #filter(conc_index != 1) %>% 
+  lm(log(total_sales) ~ poly(conc_index,2), data  = .) -> md0
+cdf %>% 
+  #filter(conc_index != 1) %>% 
+  lm(log(total_sales) ~ poly(conc_index,2) + n_games, data  = .) -> md1
+  
+cdf %>% 
+  #filter(conc_index != 1) %>% 
+  glm(total_sales ~ poly(conc_index,2) + n_games, family = gaussian(link='log'), data  = .) -> md2
+cdf %>% 
+  #filter(conc_index != 1) %>% 
+  mutate(nintendo = publisher == 'Nintendo') %>% 
+  glm(total_sales ~ conc_index + n_games*nintendo -nintendo, family = Gamma(link='log'), data  = .) -> md4
+cdf %>% 
+  #filter(conc_index != 1) %>% 
+  glm(total_sales ~ conc_index, family = Gamma(link='log'), data  = .) -> md3
+
+cdf %>% 
+  mutate(nintendo = publisher == 'Nintendo') %>% 
+  #filter(conc_index != 1) %>% 
+  expand(conc_index, n_games, nintendo) %>% 
+  filter(n_games%%5==0) %>% 
+  filter(n_games < 50) %>% 
+  filter(nintendo == F) %>% 
+  gather_predictions(md3, md4) %>% 
+  mutate(pred = exp(pred),
+         modelo = if_else(model == 'md3', 'não', 'sim' )
+         ) %>% 
+  ggplot(aes(conc_index, pred)) +
+  geom_line(aes(color = modelo), size = 1) +
+  facet_wrap(~n_games) +
+  theme(legend.position = 'bottom') +
+  labs(color = 'modelo com total de\njogos publicados',
+       title = 'Vendas anuais estimadas', 
+       y = 'milhões de unidades', 
+       x = 'indice de concentração de jogos publicados\nem diferentes gêneros', 
+       subtitle = 'Cada gráfico indica um cenário para o número de jogos publicados no ano.\nLinhas vermelhas são sempre iguais.'
+       )
+
+
+
+```
+
+```{r}
+md <- ~ glm(total_sales ~ conc_index + n_games*nintendo -nintendo, family = Gamma(link='log'), data  = .)
+
+cdf %>% 
+  mutate(nintendo = publisher == 'Nintendo') %>% 
+  select(total_sales, conc_index, n_games, nintendo) %>% 
+  crossv_kfold(k = 30) %>% 
+  mutate(model = map(train, md),
+         rmse = map2_dbl(model, test, rmse)
+         ) %>% 
+  summarise(mean_error = mean(rmse)) -> cv_result
+```
+
+Apesar desse modelo acompanhar a dinâmica entre vendas e as variáveis estudadas, o modelo ainda performa mal, com um score médio de erro em esquema de cross validation na caso dos `r cv_result$mean_error %>% round(., digits= 0)` milhões de unidades. Isso decorre do fato de não incorporarmos as mudanças (não lineares) ao longo do tempo (principalmente a diferenciação histórica nos dos anos 2009).
+Além disso não introdusimos as diferênças inerentes entre as produtoras (com exceção da Nintendo).
+
+# Plataformas
+
+Os jogos estão concentrados nas mais diferentes plataformas, um total de 31. Porém, em apenas 20 foram produzidos mais que 100 jogos.
+A seguir podemos ver a evolução ao longo do tempo do número de jogos publicados por ano. 
+
+Note o quão clara e recorrente é a tendência de alta e baixa na vida útil de uma plataforma de jogos online. Propomos investigar um pouco mais a fundo esse fenômeno. 
+
+```{r fig.height=6, fig.width=11, message=FALSE, warning=FALSE}
+df %>% 
+  count(platform) %>% 
+  filter(n > 95) %>%
+  mutate(tipo = case_when(
+                      platform %in% c('DS', '3DS', 'GB', 'GBA', 'PSV', 'PSP') ~ 'portátil',
+                      TRUE ~ 'console/pc'    
+  )) %>% 
+  rename(total_publicado = n) -> relevant_platforms 
+
+  
+
+df %>%
+  semi_join(relevant_platforms) %>% 
+  count(year, platform) %>% 
+  inner_join(relevant_platforms) %>% 
+  filter(!(platform == 'DS' & year < 2004)) %>%  
+  mutate(year = glue::glue('{year}0101', year = year)) %>% 
+  mutate(year = lubridate::ymd(year)) -> ts_plat
+
+ts_plat_labels <- 
+ts_plat %>% 
+  group_by(platform) %>% 
+  filter(n == max(n))
+
+ts_plat %>% 
+  ggplot(aes(year, n)) +
+  geom_line(aes(group = platform, color = platform), show.legend = F, size = 0.7) +
+  facet_wrap(~tipo, ncol = 1, scales = 'free') + 
+  geom_point(aes(color = platform), size = 1, show.legend = F) + 
+  ggrepel::geom_label_repel( data =  ts_plat_labels,
+    aes(label = platform, group = platform, fill = platform), 
+    nudge_y = 30, nudge_x = 0, size = 3, force = 3, show.legend = F, box.padding = 0.8) +
+  scale_x_date(date_breaks = '2 years', date_labels = '%Y') +
+  labs(title = 'Número de títulos publicados por ano e plataforma', 
+       x = NULL, 
+       y = NULL,
+       caption = '\nAviso: note as diferentes escalas usadas em cada gráfico', 
+        subtitle = 'Estão presentes as plataformas que tiveram pelos menos 95 jogos produzidos'
+       )
+  
+
+```
+
+## Como se comporta o tempo de decadência de uma plataforma?
+
+```{r}
+ts_plat %>% 
+  group_by(platform) %>% 
+  filter(n == max(n)) %>% 
+  select(year_max = year, platform) -> year_max_plat
+  ts_plat %>% 
+  group_by(platform) %>% 
+  arrange(year) %>% 
+  filter(year == last(year)) %>% 
+  select(year_last = year, platform, total_publicado, tipo) -> year_last_plat
+
+year_last_plat %>% 
+  inner_join(year_max_plat, by = 'platform') %>% 
+  mutate(max_to_last = year_last - year_max,
+         max_to_last = round(max_to_last/lubridate::dyears(1), digits = 0)) -> apg
+
+
+
+```
+
+Uma quantia interessante de se observar é o tempo de decadência de uma plataforma. Definimos tempo de decandência como o número de anos entre o ano em que a plataforma obteve seu maior número de jogos publicados e seu último ano com jogos publicados. 
+Esse número tende a ser em média aproximadamente *5 anos* dentre os 19 consoles que estamos analisando. 
+
+
+Podemos então avaliar a importância do tipo do pĺataforma (console ou portátil) com relação o tempo de decadência. Ao gráfico as seguir mostra a nossa estimativa para o tempo de decadência. Apesar da amostra ser pequena, a diferença entre o tempo de decadência de consoles e portáteis foi estimada como de 10 meses em média.
+
+```{r}
+
+apg %>%
+  ungroup() %>%
+  filter(!platform %in% c('PS4', 'XOne', 'PC')) %>% 
+  mutate(tipo = if_else(str_detect(tipo, 'pc'), 'console', tipo)) %>% 
+  lm(max_to_last ~ tipo -1, data = .) %>% 
+  broom::tidy(., conf.int = T, method = 'boot') %>% 
+  mutate(term = str_replace(term, 'tipo', '')) %>% 
+  ggplot(aes(term, estimate)) +
+  geom_bar(aes(fill = term), 
+           stat = 'identity', 
+           width = 0.2, 
+           color = 'black', 
+           show.legend = F
+  ) +
+  geom_line(group = 1) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), size = 0.5, width = 0.1) + 
+  geom_text(aes(y = conf.high + 0.5, 
+                label = glue::glue('{year} anos\n+- {erro} meses',
+                                    year = round(estimate, digits=1),
+                                    erro = round(std.error*12, digits=0)
+                                   )
+                ),
+            size = 3
+            ) +
+  geom_text(label = 'diferença de ~ 10 meses', x = 1.5, y = 4.3, size = 3, check_overlap = T) + 
+  labs(title = 'Duração média da decandêcia de uma plataforma', 
+       y = 'estimativa (anos)', 
+       x = 'tipo da plataforma',
+       caption = '\nBarras verticais ao redor das barras coloridas são os intervalos de confiança das estimativas.'
+       )
+```
+
+Outro ponto importante que vale a pena observar é a relação entre o tempo de decadência de uma plataforma (conforme definido anteriormente) e o total de jogos disponibilizados ao longo do "vida" da plataforma. Conforme o gráfico a seguir, é possível argumentar que a relação entre essas variáveis seja logarítimica.
+
+
+```{r fig.height=4, fig.width=7.5, message=FALSE, warning=FALSE}
+apg %>%
+  filter(!platform %in% c('PS4', 'XOne', 'PC')) %>% 
+  ggplot(aes(total_publicado, as.integer(max_to_last))) + 
+  geom_smooth(method = 'lm', formula = y ~ log(x)) +
+  geom_point(size = 2.5, pch = 21, fill = 'skyblue') +
+  ggrepel::geom_text_repel(aes(label = platform), size = 3, box.padding = 0.8) + 
+  labs(y = 'tempo de decadência (em anos)',
+       x = 'total de jogos publicados ao longo da "vida" da plataforma',
+       title = 'Relação entre número de jogos publicados em uma plataforma\ne seu tempo de decadência'
+       )
+```
+
+
+
+# Franquias de jogos eletrônicos
+
+## Dados externos
+
+A análise a seguir se baseia nos dados de vendas de jogos individuais por região e plataforma já mencionados. Porém, é importante mencionar que, a informação sobre a franquia de um jogo foi derivada a partir de duas fontes principais. 
+Inicialmente, achamos o suficiente extrair os dados da [Lista de franquias de jogos eletrônicos](https://en.wikipedia.org/wiki/List_of_video_game_franchises) presente no site da Wikipedia. 
+Porém essa lista não possuia franquias que são oriundas de outras mídias como por exemplo filmes e esportes. Assim extraímos também a informação da [Lista franquias de jogos eletrônicos mais bem sucedidas em termos de volume](https://en.wikipedia.org/wiki/List_of_best-selling_video_game_franchises).
+
+Esses dados foram processados e formatados por meio de um script em python localizado no coódigo fonte da análise.
+
+## Limpeza e integração de dados
+
+A junção entre um jogo e uma franquia foi realizada da seguinte forma.
+
+1.normalização de nomes de franquias e títulos de jogos (retirando acentos, e alterando a caixa das letras);
+2. criar uma regex para cada franquia;
+3. Detectar, para cada título de jogo, se detectamos o nome da franquia
+
+Esse último passo é justificado por duas observações:
+
+- na maioria das vezes, o nome da franquia está no título de um jogo. A franquia os jogs Super Mario 62 e Mario Kart pertecem a franquia Mario.
+- franquias podem ter uma estrutura encadeada.
+- muitas vezes um jogo pode pertencem a mais de uma franquia (talvez não legalmente), como por exemplo Lego Star Wars que pertence a franquia de jogos de Lego e de Star Wars.
+
+```{r read data}
+
+
+hgf <- read_csv(here('data', 'processed', 'highest_selling_franchises.csv')) %>% janitor::clean_names()
+
+franchises <- read_csv(here('data','processed', 'franchises.csv')) %>% 
+  janitor::clean_names() %>% 
+  bind_rows(hgf %>% select(franchise_name = franchise)) %>%
+  mutate(franchise_name = str_to_lower(franchise_name)) %>% 
+  unique(.) %>% 
+  filter(!str_detect(franchise_name, 'major')) %>%
+  filter(franchise_name != 'd') %>% 
+  filter(franchise_name != 'n') %>% 
+  filter(franchise_name != 'ys') %>%  
+  filter(franchise_name != 'x') %>%  
+  filter(franchise_name != 'wars') %>%  
+  add_row(franchise_name = c('007|goldeneye', 'winning eleven|pro evolution soccer',
+                             'pok[e|é]mon|pikachu', 'zelda', 'sonic', 'lord of the rings', 
+                             'the last of us', 'south park', 'major league baseball|mlb', 
+                             'wwe', '^ys', '^x ', '^(?!.*(star|guild|shadow|quake)).*wars.*$',
+                             'nba street','nfl street', 'nascar', 'nhl' , 'true crime', 'ufc',
+                             'dj hero', 'yu-gi-oh', 'banjo', 'pitfall', 'the simpsons' , 
+                             'toy story', 'rocksmith', 'nfl 2k', 'ncaa', 'f1|f-1', 'hobbit'
+                             )) %>% 
+  filter(!str_detect(franchise_name ,'\\}|\\{')) 
+  
+get_games_franchises <- function(df) {
+  
+  usual_path = here('data','processed','games_and_franchises.csv')
+  
+  if ( file.exists(usual_path) ) {
+    games_franchises <- read_csv(usual_path)
+  } else {
+    games_franchises <- 
+    df %>% 
+      select(name) %>% 
+      mutate(name = str_to_lower(name)) %>% 
+      crossing(franchises %>% select(franchise_name)) %>% 
+      mutate(match = str_detect(name, franchise_name)) %>% 
+      filter(match == T) %>% 
+      select(-match) %>% 
+      unique()
+    write_csv(games_franchises, usual_path)
+        
+  }
+  
+  games_franchises 
+  
+}
+
+games_franchises <- get_games_franchises(df)
+
+```
+
+Após realizar essa integração, vale mencionar que apenas 7 mil dos 16 mil jogos foram classificados com pelo menos uma franquia.
+
+Abaixo está o resultado dessa manipulação de dados.
+
+```{r}
+games_franchises
+```
+
+
+## Quais são as franquias mais bem sucedidas? Quais estão em queda? E em ascenção?
+
+Não supreendentemente, a lista com as top 30 franquias mais bem sucedidas possui nomes bem conhecidos. O gráfico a seguir mostra esses nomes bem como o histórico de vendas deles.
+
+```{r}
+dfranchises <- 
+df %>% 
+  inner_join(games_franchises %>% rename(franchise = franchise_name)) %>% 
+  filter(franchise != 'super mario') %>% 
+  filter(franchise != 'zelda') %>% 
+  filter(franchise != 'sin') %>% 
+  filter(franchise != 'pitfall') %>% 
+  filter(franchise != "tony hawk's") %>% 
+  filter(franchise != "rainbow six") %>% 
+  filter(franchise != "q*bert") %>% 
+  filter(franchise != "earth") %>% 
+  filter(franchise != 'infinity') %>% 
+  #filter(franchise != 'dance dance revolution') %>% 
+  filter(franchise != "tom clancy's") %>% 
+  filter(franchise != "chrono")
+  
+
+ dfranchises%>% 
+  filter(franchise != 'super mario') %>% 
+  filter(franchise != 'zelda') %>% 
+  filter(franchise != 'sin') %>% 
+  group_by(franchise) %>% 
+  summarise(total_sales = sum(global_sales)) %>% 
+  top_n(30) %>% 
+  mutate(franchise = fct_reorder(franchise, total_sales)) %>% 
+  ggplot(aes(franchise, total_sales)) +
+  geom_point() +
+  coord_flip() +
+  labs(
+    x = NULL, 
+    y = 'milhões de unidades',
+    title = 'Total de vendas históricas das top 30 franquias'
+  )
+```
+
+Porém uma pergunta importante é identificar quais franquias, dentre as 132 que temos identificado, tem uma tendência crescente ao longo do tempo e quais têm uma tendencia decrescente ao longo do tempo.
+Usaremos as franquias que têm pelo menos 4 jogos publicados durante o período de 2000 a 2015 (excluimos o ano de 2016 por se tratar de um ano com dados parciais). Por curiosidade, incluímos apenas jogos que lançaram jogos no ano de 2015 apara acompanhar as atuais franquias. Em seguida estimamos a tendência de crescimento ao longo dos anos e mostramos as 16 maiores e menores taxas de crescimento estimadas.
+
+Abaixo podemos ver as 16 franquias mais promissoras em termos de sua taxa de crescimento durante os 15 anos estudados. Podemos identificar várias tendências que observamos nos últimos anos, como por exemplo o consistente crescimento do Fifa, ou da série The Witcher do Call of Duty.
+
+```{r fig.height=5, fig.width=9, message=FALSE, warning=FALSE}
+dfranchises %>% 
+  filter(year >= 2000) %>% 
+  filter( year < 2016) %>%
+  group_by(franchise) %>% 
+  filter(max(year) > 2014) %>% 
+  group_by(year, franchise) %>% 
+  summarise(total_sales = sum(global_sales)) -> tys
+
+tys %>% 
+  group_by(franchise) %>% 
+  arrange(year) %>% 
+  mutate(t = year - first(year) + 1) %>% 
+  nest() %>% 
+  mutate(nyear = map_int(data, nrow))  -> nested_tty
+
+nested_tty %>%   
+  filter(nyear > 4) %>%
+  mutate(trend_model = map(data, ~ lm(total_sales ~ t, data = .))) %>% 
+  mutate(trend = map(trend_model, broom::tidy)) %>% 
+  unnest(trend) %>% 
+  filter(term == 't') -> yearly_trends
+
+top_trends <- 
+yearly_trends %>% top_n(16, estimate) %>% select(franchise, estimate) %>% mutate(kind = 'top')
+
+bottom_trends <- 
+yearly_trends %>% top_n(16, -estimate) %>% select(franchise, estimate) %>% mutate(kind = 'bottom')
+
+trends <- bind_rows(top_trends, bottom_trends)
+
+tys %>% 
+  inner_join(top_trends) %>% 
+  ungroup() %>% 
+  mutate(year = glue::glue('{year}0101', year = year)) %>% 
+  mutate(year = lubridate::ymd(year)) %>% 
+  mutate(franchise = fct_reorder(franchise, -estimate)) %>% 
+  ggplot(aes(year, total_sales)) +
+  geom_line(aes(color = franchise), show.legend = F) +
+  geom_point(aes(color = franchise), show.legend = F, size = 0.8) + 
+  facet_wrap(~franchise,scales = 'free_y') +
+  scale_x_date(date_labels = '%Y') +
+  geom_smooth(method = 'lm', se = F, color = 'black', lty = 2, size = 0.3) +
+  expand_limits(y = 0) +
+  labs(y = 'vendas totais (em milhões)', 
+       x = 'ano',
+       title = '16 franquias de jogos eletrônicos em crescimento',
+       subtitle = 'Julgadas pelo seu crescimento histórico de 2000 a 2015'
+       )
+ 
+  
+```
+
+
+Com relação a as franquias em decrescimento, podemos também ver clássicos como Guitar Hero, Gears of War, the Sims e etc.
+
+```{r fig.height=5, fig.width=9, message=FALSE, warning=FALSE}
+tys %>% 
+  inner_join(bottom_trends) %>% 
+  ungroup() %>% 
+  mutate(year = glue::glue('{year}0101', year = year)) %>% 
+  mutate(year = lubridate::ymd(year)) %>% 
+  mutate(franchise = fct_reorder(franchise, -estimate)) %>% 
+  ggplot(aes(year, total_sales)) +
+  geom_line(aes(color = franchise), show.legend = F) +
+  geom_point(aes(color = franchise), show.legend = F, size = 0.8) + 
+  facet_wrap(~franchise,scales = 'free_y') +
+  scale_x_date(date_labels = '%Y') +
+  geom_smooth(method = 'lm', se = F, color = 'black', lty = 2, size = 0.3) +
+  expand_limits(y = 0) +
+  labs(y = 'vendas totais (em milhões)', 
+       x = 'ano',
+       title = '16 franquias de jogos eletrônicos em encolhimento',
+       subtitle = 'Julgadas pelo seu crescimento histórico de 2000 a 2015'
+       )
+
+```
+
+# Conclusões
+
+Conseguimos extrair algumas informações importantes sobre o mercado de jogos eletrônicos. 
+Aprendemos que a decisão de concentrar os jogos publicados de uma produtora pode ser prejudicial para as vendas dela. Além disso vimos que existe um padrão na decandência de consoles e que ele depende em parte de quão vasto a game de jogos publicados.
+
+Sobre franquias de jogos eletrônicos, conseguimos identificar quais estão em crescimento ou decrescimento, nos indicando franquias que podem ser interessantes de se acompanhar a evolução de seus títulos.
+
+### O que ficou faltando
+
+- Uma exploração maior da relação entre as entidades **franquia**, **plataforma**, **gênero** e **produtora**.
+
+- Integrar aspectos regionais (EUA, EU, JP) nas perguntas que propomos.
+
+
+## Observações
+
+- havia um jogo vendido em 2020
+- haviam jogos da plataforma DS produzidos antes de sua data de lançamento (2004)
+- falta da plataforma GBC
+- PES, da Konami, classificado como ação no PSP
+
+
+```{r}
